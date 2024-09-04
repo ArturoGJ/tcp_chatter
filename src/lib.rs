@@ -1,11 +1,11 @@
 use std::{
-    io::{self, stdin, Read, Write},
+    io::{stdin, Read, Write},
     net::{TcpListener, TcpStream},
-    sync::Arc,
+    sync::{mpsc::Sender, Arc},
     thread,
 };
 
-pub fn start_server() {
+pub fn start_server(sender: Sender<String>) {
     let port = 0; // When using 0 the OS will provide an open port.
     let addr = format!("127.0.0.1:{}", port);
     let listener = TcpListener::bind(addr).expect("Failed to get a listener");
@@ -18,11 +18,12 @@ pub fn start_server() {
     println!(" ---------------- Server started ---------------- ");
     println!(" ---------------- Waiting for connections ---------------- ");
     for socket in listener.incoming() {
+        let sender = sender.clone();
         match socket {
             Ok(socket) => {
                 println!("Handling new client.");
                 thread::spawn(move || {
-                    start_client(socket);
+                    start_client(socket, sender);
                 });
             }
             Err(_) => eprintln!("Error getting socket stream."),
@@ -30,23 +31,13 @@ pub fn start_server() {
     }
 }
 
-pub fn start_client_mode() {
-    print!("Type port to connect to: ");
-    io::stdout().flush().unwrap();
-
-    let mut input: String = String::new();
-
-    io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read user input.");
-
-    let input = input.trim();
-    let socket_stream = TcpStream::connect(format!("127.0.0.1:{}", input))
-        .expect(format!("Could not connect to port: {}", input).trim());
-    start_client(socket_stream);
+pub fn connect_to_server(port: &str, sender: Sender<String>) {
+    let socket = TcpStream::connect(format!("127.0.0.1:{}", port))
+        .expect(format!("Could not connect to port: {}", port).trim());
+    start_client(socket, sender);
 }
 
-fn start_client(socket: TcpStream) {
+fn start_client(socket: TcpStream, sender: Sender<String>) {
     let socket = Arc::new(socket);
     let socket_clone = socket.clone();
     let addr = socket_clone.peer_addr().unwrap();
@@ -64,7 +55,7 @@ fn start_client(socket: TcpStream) {
             .cloned()
             .collect();
         let msg = String::from_utf8(msg).expect("Failed to create message.");
-        print!(" - {}", msg);
+        sender.send(msg).unwrap();
     });
 
     let socket_clone = socket.clone();
