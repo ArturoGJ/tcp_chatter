@@ -1,5 +1,5 @@
 use std::{
-    io::{stdin, Read, Write},
+    io::{self, stdin, Read, Write},
     net::{TcpListener, TcpStream},
     sync::{mpsc::Sender, Arc},
     thread,
@@ -44,18 +44,25 @@ fn start_client(socket: TcpStream, sender: Sender<String>) {
     println!("Messaging with: {}", addr);
     let receive_handle = thread::spawn(move || loop {
         let mut input_buffer = vec![0; 1024];
-        socket_clone
-            .as_ref()
-            .read_exact(&mut input_buffer)
-            .expect("Could not read into buffer.");
-
-        let msg = input_buffer
-            .iter()
-            .take_while(|&&x| x != 0)
-            .cloned()
-            .collect();
-        let msg = String::from_utf8(msg).expect("Failed to create message.");
-        sender.send(msg).unwrap();
+        match socket_clone.as_ref().read_exact(&mut input_buffer) {
+            Ok(_) => {
+                let msg = input_buffer
+                    .iter()
+                    .take_while(|&&x| x != 0)
+                    .cloned()
+                    .collect();
+                let msg = String::from_utf8(msg).expect("Failed to create message.");
+                sender.send(msg).unwrap();
+            }
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                println!("Connection closed by the server.");
+                break;
+            }
+            Err(e) => {
+                eprintln!("Error reading from socket: {}", e);
+                break;
+            }
+        }
     });
 
     let socket_clone = socket.clone();
@@ -73,9 +80,7 @@ fn start_client(socket: TcpStream, sender: Sender<String>) {
     receive_handle
         .join()
         .expect("Failed to create the receive handle.");
-    println!("Receive handle: Start");
     send_handle
         .join()
         .expect("Failed to create the send handle.");
-    println!("Send handle: END");
 }
